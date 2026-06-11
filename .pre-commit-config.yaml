@@ -1,0 +1,50 @@
+# Public-safe pre-commit config. Ships AS .pre-commit-config.yaml via the
+# oss_export RENAME map. Runs ruff (format + check) and standard file-hygiene
+# hooks. The internal config's custom dev/lint/* hooks, the openapi-json and
+# uv-lock hooks, and mypy are intentionally omitted — they depend on tooling
+# under dev/ and scripts/ that is not shipped to the public repo.
+#
+# The built web-UI bundle is committed to the public repo (vendored, minified
+# JS/CSS) — never lint or "fix" it. Internally it's gitignored so the hooks
+# never see it; this exclude is public-only.
+exclude: ^omnigent/server/static/web-ui/
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        language: system
+        entry: .venv/bin/python -m ruff format --force-exclude
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: .venv/bin/python -m ruff check --fix --force-exclude
+        types: [python]
+
+  # ── File hygiene ────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        name: trim trailing whitespace
+        exclude: \.(md|svg)$
+      - id: end-of-file-fixer
+        name: ensure files end with newline
+        exclude: \.(md|svg)$
+      - id: check-yaml
+        name: check yaml syntax
+        # docker-compose override files use non-standard tags
+        # (`!reset`, `!override`) that PyYAML can't parse.
+        exclude: ^deploy/docker/docker-compose\.[a-z]+\.yaml$
+      - id: check-merge-conflict
+        name: check for merge conflicts
+      - id: check-added-large-files
+        name: prevent large files
+        args: ['--maxkb=1000']
+      - id: check-case-conflict
+        name: check for case conflicts
+      - id: mixed-line-ending
+        name: check line endings
+        args: ['--fix=lf']
