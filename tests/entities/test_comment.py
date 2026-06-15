@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from omnigent.entities.comment import Comment, CommentsFingerprint
 
-
 # ── Comment ───────────────────────────────────────────
 
 

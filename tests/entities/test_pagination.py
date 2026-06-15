@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from omnigent.entities.pagination import PagedList, paginate_in_memory
-
 
 # ── PagedList ─────────────────────────────────────────
 
@@ -86,9 +83,7 @@ def test_paginate_before_cursor_asc() -> None:
 
 def test_paginate_after_and_before() -> None:
     """Both cursors narrow the window."""
-    result = paginate_in_memory(
-        _ITEMS, _id_fn, limit=10, after="1", before="5", order="asc"
-    )
+    result = paginate_in_memory(_ITEMS, _id_fn, limit=10, after="1", before="5", order="asc")
     assert [_id_fn(i) for i in result.data] == ["2", "3", "4"]
 
 

@@ -7,8 +7,6 @@ _validate_type_matches_data, and Conversation field defaults.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from pydantic import ValidationError
 
@@ -28,7 +26,6 @@ from omnigent.entities.conversation import (
     _validate_type_matches_data,
     parse_item_data,
 )
-
 
 # ── ErrorData ─────────────────────────────────────────
 
@@ -173,7 +170,7 @@ def test_terminal_command_invalid_kind() -> None:
 def test_non_content_item_types_complete() -> None:
     """All expected non-content types are present."""
     expected = {"compaction", "error", "resource_event", "slash_command", "terminal_command"}
-    assert NON_CONTENT_ITEM_TYPES == expected
+    assert expected == NON_CONTENT_ITEM_TYPES
 
 
 def test_non_content_item_types_is_frozenset() -> None:

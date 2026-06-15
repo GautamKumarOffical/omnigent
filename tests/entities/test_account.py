@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from omnigent.entities.account import Account, AccountToken
 
-
 # ── Account ───────────────────────────────────────────
 
 
