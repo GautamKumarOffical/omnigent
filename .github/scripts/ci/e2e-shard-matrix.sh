@@ -13,6 +13,9 @@
 #
 # Env in:  EVENT_NAME (github.event_name), IS_DRAFT, IS_FORK (both may be empty
 #          on non-PR events), NUM_SHARDS.
+#          EXTRA_SKIP (optional): when "true", force an empty matrix. e2e-ui.yml
+#          sets this to skip a push to main that didn't touch ap-web/**; e2e.yml
+#          never sets it, so its behavior is unchanged.
 # Out:     matrix={"include":[{"shard_id":0,"num_shards":N}, ...]}  (or [] empty)
 
 set -euo pipefail
@@ -24,10 +27,13 @@ fi
 if [[ "$EVENT_NAME" == "pull_request" && "${IS_FORK:-false}" == "true" ]]; then
   skip=true
 fi
+if [[ "${EXTRA_SKIP:-false}" == "true" ]]; then
+  skip=true
+fi
 
 if [[ "$skip" == "true" ]]; then
   echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-  echo "skip: empty matrix (event=$EVENT_NAME draft=${IS_DRAFT:-} fork=${IS_FORK:-})"
+  echo "skip: empty matrix (event=$EVENT_NAME draft=${IS_DRAFT:-} fork=${IS_FORK:-} extra_skip=${EXTRA_SKIP:-})"
   exit 0
 fi
 

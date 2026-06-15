@@ -26,7 +26,13 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
+      - main
       - 'fork-e2e/**'
+    # NOTE: no top-level `paths:` filter here on purpose -- it would apply to
+    # the fork-e2e/** leg too and gate mirrored fork e2e_ui on ap-web changes,
+    # narrowing existing fork coverage. Instead the `setup` job skips a push to
+    # main that didn't touch ap-web/** (EXTRA_SKIP below), so per-merge regression
+    # runs fire only for UI changes while fork-e2e/** keeps running unconditionally.
   schedule:
     - cron: "0 9 * * *"
   workflow_dispatch:
@@ -97,12 +103,43 @@ jobs:
           # own copy is fine.
           sparse-checkout: .github/scripts/ci
           persist-credentials: false
+      - name: Detect ap-web changes on push to main
+        # Per-merge regression runs (the push:main leg) only need to fire when
+        # the merge touched the SPA. Compare the pushed range and set EXTRA_SKIP
+        # when no ap-web/** file changed. Only applies to push-to-main; PR /
+        # fork-e2e / schedule / dispatch events leave EXTRA_SKIP=false.
+        id: apweb
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          extra_skip=false
+          if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
+            # New-branch / unknown base (all-zero before) -> don't skip, run it.
+            if [[ "$BEFORE" =~ ^0+$ ]]; then
+              echo "before is all-zero; running without skip"
+            else
+              touched=$(gh api "repos/$REPO/compare/$BEFORE...$SHA" \
+                --jq '[.files[].filename] | any(startswith("ap-web/"))' 2>/dev/null || echo "true")
+              if [[ "$touched" == "false" ]]; then
+                extra_skip=true
+              fi
+              echo "ap-web touched in $BEFORE...$SHA: $touched"
+            fi
+          fi
+          echo "extra_skip=$extra_skip" >> "$GITHUB_OUTPUT"
       - name: Compute shard matrix
         id: matrix
         env:
           EVENT_NAME: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft }}
           IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          EXTRA_SKIP: ${{ steps.apweb.outputs.extra_skip }}
           NUM_SHARDS: "3"
         run: bash .github/scripts/ci/e2e-shard-matrix.sh
 
@@ -234,6 +271,7 @@ jobs:
           SHARD_ID: ${{ matrix.shard_id }}
           NUM_SHARDS: ${{ matrix.num_shards }}
         run: |
+          mkdir -p artifacts
           EXTRA_ARGS=()
           if [[ "$NIGHTLY_FULL" != "true" ]]; then
             EXTRA_ARGS+=(-m "not nightly")
@@ -251,11 +289,23 @@ jobs:
             --ui-skip-build \
             --splits="$NUM_SHARDS" \
             --group="$((SHARD_ID + 1))" \
+            --junitxml="artifacts/e2e-ui-shard${SHARD_ID}.xml" \
             --tracing=retain-on-failure \
             --screenshot=only-on-failure \
             --video=retain-on-failure \
             "${EXTRA_ARGS[@]}" \
             || { rc=$?; [ "$rc" -eq 5 ] && echo "::notice::No tests collected in this shard; treating as a pass." || exit "$rc"; }
+
+      - name: Upload junit (failing test IDs for the autofix workflow)
+        # The post-merge auto-fix workflow (e2e-ui-autofix.yml) downloads these
+        # to learn exactly which tests failed. Only needed on failure.
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: e2e-ui-junit-${{ github.run_id }}-shard${{ matrix.shard_id }}
+          path: artifacts/e2e-ui-shard${{ matrix.shard_id }}.xml
+          retention-days: 3
+          if-no-files-found: ignore
 
       - name: Upload Playwright traces / videos / screenshots on failure
         id: upload_playwright
