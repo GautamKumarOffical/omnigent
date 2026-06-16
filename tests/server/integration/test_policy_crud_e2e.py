@@ -328,9 +328,11 @@ async def test_policy_registry_handler_matches_create_allowlist(
     headers = _admin_headers()
 
     reg_resp = await auth_client.get("/v1/policy-registry", headers=headers)
+    assert reg_resp.status_code == 200
     entries = reg_resp.json()["data"]
     # Pick a callable (not factory) entry to avoid needing factory_params.
-    callable_entry = next(e for e in entries if e["kind"] == "callable")
+    callable_entry = next((e for e in entries if e["kind"] == "callable"), None)
+    assert callable_entry is not None, "No callable entry found in policy registry"
 
     create_resp = await auth_client.post(
         "/v1/policies",
@@ -366,16 +368,17 @@ async def test_default_policy_not_in_session_list(
     headers = _admin_headers()
 
     # Create a default (server-wide) policy.
-    await auth_client.post(
+    create_resp = await auth_client.post(
         "/v1/policies",
         json={"name": "global_only", "type": "python", "handler": _HANDLER},
         headers=headers,
     )
+    assert create_resp.status_code == 200
 
     # Session policy list must not contain it.
     session_resp = await auth_client.get(f"/v1/sessions/{session_id}/policies", headers=headers)
     assert session_resp.status_code == 200
-    session_names = {p["name"] for p in session_resp.json()["data"] if p["source"] == "session"}
+    session_names = {p["name"] for p in session_resp.json()["data"]}
     assert "global_only" not in session_names
 
 
@@ -393,11 +396,12 @@ async def test_session_policy_not_in_default_list(
     headers = _admin_headers()
 
     # Create a session-scoped policy.
-    await auth_client.post(
+    create_resp = await auth_client.post(
         f"/v1/sessions/{session_id}/policies",
         json={"name": "session_only", "type": "python", "handler": _HANDLER},
         headers=headers,
     )
+    assert create_resp.status_code == 200
 
     # Default policy list must not contain it.
     default_resp = await auth_client.get("/v1/policies", headers=headers)
@@ -421,16 +425,17 @@ async def test_two_sessions_have_independent_policies(
     headers = _admin_headers()
 
     # Create a policy in session A.
-    await auth_client.post(
+    create_resp = await auth_client.post(
         f"/v1/sessions/{session_a}/policies",
         json={"name": "only_in_a", "type": "python", "handler": _HANDLER},
         headers=headers,
     )
+    assert create_resp.status_code == 200
 
     # Session B must not see it.
     resp_b = await auth_client.get(f"/v1/sessions/{session_b}/policies", headers=headers)
     assert resp_b.status_code == 200
-    names_b = {p["name"] for p in resp_b.json()["data"] if p["source"] == "session"}
+    names_b = {p["name"] for p in resp_b.json()["data"]}
     assert "only_in_a" not in names_b
 
 
@@ -454,6 +459,7 @@ async def test_disable_and_reenable_default_policy(
         json={"name": "togglable", "type": "python", "handler": _HANDLER},
         headers=headers,
     )
+    assert create_resp.status_code == 200
     policy_id = create_resp.json()["id"]
     assert create_resp.json()["enabled"] is True
 
@@ -468,7 +474,9 @@ async def test_disable_and_reenable_default_policy(
 
     # Verify it shows as disabled in the list
     list_resp = await auth_client.get("/v1/policies", headers=headers)
-    match = next(p for p in list_resp.json()["data"] if p["id"] == policy_id)
+    assert list_resp.status_code == 200
+    match = next((p for p in list_resp.json()["data"] if p["id"] == policy_id), None)
+    assert match is not None, "Policy not found in list after disable"
     assert match["enabled"] is False
 
     # Re-enable
