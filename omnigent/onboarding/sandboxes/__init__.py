@@ -62,6 +62,7 @@ _LAUNCHERS: dict[str, str] = {
     # `omnigent[cwsandbox]` extra), imported lazily like modal/daytona.
     "cwsandbox": "omnigent.onboarding.sandboxes.cwsandbox:CWSandboxLauncher",
     "islo": "omnigent.onboarding.sandboxes.islo:IsloSandboxLauncher",
+    "openshell": "omnigent.onboarding.sandboxes.openshell:OpenShellSandboxLauncher",
 }
 
 
