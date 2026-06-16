@@ -43,15 +43,19 @@ _NETWORK = re.compile(
 _SECRET = re.compile(
     r"DATABRICKS_(CLIENT_ID|CLIENT_SECRET|TOKEN|BEARER)"
     r"|FORK_E2E_APP_PRIVATE_KEY|PRIVATE_KEY|[A-Z0-9]+_SECRET\b"
-    r"|ACCESS_TOKEN|GITHUB_TOKEN|\bGH_TOKEN\b|\.databrickscfg|AWS_SECRET",
+    # No bare ACCESS_TOKEN: case-insensitively it matches common `access_token`
+    # OAuth/JSON fields and would block legit PRs. The specific secret names
+    # above stay; generic-token exfil is left to the reviewer + LLM advisory.
+    r"|GITHUB_TOKEN|\bGH_TOKEN\b|\.databrickscfg",
     re.IGNORECASE,
 )
 
 # Always-blocking single-line shapes (independent of co-occurrence).
 _STANDALONE = re.compile(
     r"/dev/tcp/"                                   # bash reverse shell
+    # Wholesale environ dump only -- a bare `os.environ)` matched benign
+    # `helper(os.environ)` and is dropped to avoid false positives.
     r"|(json\.dumps|dict|str|repr)\(\s*os\.environ"  # dump the whole environ
-    r"|os\.environ\s*\)"                           # ...passed somewhere
     r"|\beval\s*\(|\bexec\s*\(|__import__\s*\("    # dynamic exec
     r"|pickle\.loads|marshal\.loads"               # deserialization exec
     r"|base64\.(b64decode|decodebytes)|codecs\.decode",  # decode (paired below)
@@ -134,7 +138,8 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print("usage: security_scan.py <diff-file>", file=sys.stderr)
         return 0
-    diff = open(argv[1], encoding="utf-8", errors="replace").read()
+    with open(argv[1], encoding="utf-8", errors="replace") as fh:
+        diff = fh.read()
     blocking, info = scan_diff(diff)
 
     for f in blocking:

@@ -153,3 +153,31 @@ def test_ci_file_touch_is_info_not_blocking(tmp_path: Path) -> None:
     out = _run(tmp_path, _diff("tests/conftest.py", ["# add a harmless fixture comment"]))
     assert out["clean"] == "true"
     assert "note" in out["summary"]
+
+
+def test_passing_environ_around_not_blocked(tmp_path: Path) -> None:
+    """Passing os.environ to a helper (no dump) does NOT block.
+
+    Regression for review feedback: a bare ``os.environ)`` matched benign
+    ``helper(os.environ)`` and withheld the mirror. Only a wholesale dump
+    (``json.dumps(os.environ)`` etc.) should block. Asserts ``clean=true``.
+    """
+    out = _run(tmp_path, _diff("tests/conftest.py", ["import os", "configure_app(os.environ)"]))
+    assert out["clean"] == "true"
+
+
+def test_generic_access_token_field_not_blocked(tmp_path: Path) -> None:
+    """A generic ``access_token`` field + a network call does NOT block.
+
+    Regression for review feedback: a case-insensitive ``ACCESS_TOKEN`` term
+    matched ordinary OAuth/JSON ``access_token`` identifiers and, combined with
+    any network use, withheld the mirror. Asserts ``clean=true``.
+    """
+    out = _run(
+        tmp_path,
+        _diff(
+            "tests/test_oauth.py",
+            ["access_token = resp.json()['access_token']", "requests.get(url, headers=h)"],
+        ),
+    )
+    assert out["clean"] == "true"
