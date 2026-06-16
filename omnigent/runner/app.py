@@ -12249,6 +12249,7 @@ _HARNESS_MODEL_ENV_KEY: dict[str, str] = {
     "openai-agents": "HARNESS_OPENAI_AGENTS_MODEL",
     "cursor": "HARNESS_CURSOR_MODEL",
     "antigravity": "HARNESS_ANTIGRAVITY_MODEL",
+    "copilot": "HARNESS_COPILOT_MODEL",
 }
 
 
@@ -12279,6 +12280,7 @@ def _build_spawn_env_from_spec(
             _build_antigravity_spawn_env,
             _build_claude_sdk_spawn_env,
             _build_codex_spawn_env,
+            _build_copilot_spawn_env,
             _build_cursor_spawn_env,
             _build_openai_agents_sdk_spawn_env,
             _build_pi_spawn_env,
@@ -12296,6 +12298,8 @@ def _build_spawn_env_from_spec(
             env = _build_cursor_spawn_env(spec, workdir=workdir)
         elif harness == "antigravity":
             env = _build_antigravity_spawn_env(spec)
+        elif harness == "copilot":
+            env = _build_copilot_spawn_env(spec, workdir=workdir)
         else:
             # Native terminal harnesses and unknown harnesses build env elsewhere.
             return None
