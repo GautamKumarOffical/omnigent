@@ -1,4 +1,4 @@
-import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@/lib/routing";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,6 +6,8 @@ import {
   MonitorCloudIcon,
   CircleHelpIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   GitBranchIcon,
   ArrowUpIcon,
   FileTextIcon,
@@ -51,7 +53,7 @@ import {
   nativeWrapperLabelsForAgent,
 } from "@/lib/nativeCodingAgents";
 import { useHosts, type Host } from "@/hooks/useHosts";
-import { useAvailableAgents } from "@/hooks/useAvailableAgents";
+import { useAvailableAgents, type AvailableAgent } from "@/hooks/useAvailableAgents";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import { useRecentWorkspaces } from "@/hooks/useRecentWorkspaces";
 import { useDirectorySessions } from "@/hooks/useDirectorySessions";
@@ -654,6 +656,26 @@ function BrainHarnessOptions({
   );
 }
 
+/**
+ * True when ``agent`` exposes per-agent knobs in the picker's Advanced
+ * settings sub-page: an overridable brain harness (bundle agents like
+ * polly / debby), Claude Code's permission mode, or Codex's approval mode.
+ *
+ * Drives both the "Advanced settings" row's visibility and whether picking
+ * the agent keeps the menu open (so the user can step into the sub-page)
+ * instead of closing it like a plain agent pick.
+ */
+function agentHasAdvancedSettings(
+  agent: Pick<AvailableAgent, "name" | "harness"> | null | undefined,
+): boolean {
+  const hasOverridableHarness = agent?.harness != null && agent.harness in BRAIN_HARNESS_LABELS;
+  return (
+    hasOverridableHarness ||
+    nativeAgentHasCapability(agent, "permissionMode") ||
+    nativeAgentHasCapability(agent, "approvalMode")
+  );
+}
+
 export function NewChatLandingScreen() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -785,6 +807,20 @@ export function NewChatLandingScreen() {
   const [createError, setCreateError] = useState<string | null>(null);
   // "Connect a host" instructions modal, opened from the host dropdown.
   const [connectOpen, setConnectOpen] = useState(false);
+
+  // Agent picker dropdown. Controlled so picking an agent that has Advanced
+  // settings can keep the menu open instead of dismissing it. The menu has
+  // two pages that slide horizontally within the one popover surface (so it
+  // works on mobile, no off-screen flyout): the agent list and the selected
+  // agent's Advanced settings.
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [agentMenuView, setAgentMenuView] = useState<"agents" | "advanced">("agents");
+  // The sliding viewport's height tracks the visible page so the popover
+  // resizes with the slide rather than sizing to the taller page. Measured
+  // from the live page nodes (both stay mounted to animate the slide).
+  const agentsPageRef = useRef<HTMLDivElement | null>(null);
+  const advancedPageRef = useRef<HTMLDivElement | null>(null);
+  const [agentMenuHeight, setAgentMenuHeight] = useState<number | undefined>(undefined);
 
   const { recent, addRecent } = useRecentWorkspaces(selectedHostId);
 
@@ -1018,6 +1054,41 @@ export function NewChatLandingScreen() {
           ? `${selectedAgent.display_name} (${BRAIN_HARNESS_LABELS[pickedHarness] ?? pickedHarness})`
           : selectedAgent.display_name
     : "Select agent";
+
+  // Size the sliding viewport to the visible page. useLayoutEffect (pre-paint)
+  // plus a ResizeObserver keeps it correct when the menu opens, when the page
+  // slides, and when a page's own content reflows (e.g. the permission-mode
+  // detail line wrapping on hover).
+  useLayoutEffect(() => {
+    if (!agentMenuOpen) return;
+    const page = agentMenuView === "advanced" ? advancedPageRef.current : agentsPageRef.current;
+    if (!page) return;
+    const measure = () => setAgentMenuHeight(page.offsetHeight);
+    measure();
+    // Guarded for environments (jsdom) without ResizeObserver; the one-shot
+    // measure above still sizes the viewport there.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(page);
+    return () => observer.disconnect();
+  }, [
+    agentMenuOpen,
+    agentMenuView,
+    agentList,
+    effectiveAgentId,
+    supportsPermissionMode,
+    supportsApprovalMode,
+    selectedAgentDefaultHarness,
+  ]);
+
+  // Never strand the user on an empty Advanced page: if the selected agent
+  // loses its knobs (e.g. the agent list refreshes and it disappears), fall
+  // back to the agent list.
+  useEffect(() => {
+    if (agentMenuView === "advanced" && !agentHasAdvancedSettings(selectedAgent)) {
+      setAgentMenuView("agents");
+    }
+  }, [agentMenuView, selectedAgent]);
 
   function selectHost(hostId: string) {
     // Re-selecting the current host is a no-op. Clearing the workspace here
@@ -1368,7 +1439,15 @@ export function NewChatLandingScreen() {
                   <IntelligentModelControl value={costControlMode} onChange={setCostControlMode} />
                 )}
                 {agentList.length > 0 ? (
-                  <DropdownMenu>
+                  <DropdownMenu
+                    open={agentMenuOpen}
+                    onOpenChange={(open) => {
+                      setAgentMenuOpen(open);
+                      // Always reopen on the agent list, never mid-slide on the
+                      // Advanced page.
+                      if (!open) setAgentMenuView("agents");
+                    }}
+                  >
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
@@ -1383,51 +1462,167 @@ export function NewChatLandingScreen() {
                         <ChevronDownIcon className="size-3.5 opacity-60" />
                       </Button>
                     </DropdownMenuTrigger>
-                    {/* side=bottom documents the intent: the menu is a short
-                        agent list (harness / permission settings live in the
-                        footer tray's Advanced menu), so it should always drop
-                        downward like the other composer menus. */}
+                    {/* side=bottom documents the intent: a short agent list
+                        that should always drop downward like the other composer
+                        menus. p-0 because each sliding page owns its padding. */}
                     <DropdownMenuContent
                       align="end"
                       side="bottom"
-                      className="max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-64 max-w-[calc(100vw-2rem)] overflow-y-auto p-1"
+                      className="w-72 max-w-[calc(100vw-2rem)] p-0"
                     >
-                      {agentList.map((agent) => (
-                        <DropdownMenuItem
-                          key={agent.id}
-                          data-testid={`new-chat-landing-agent-${agent.id}`}
-                          data-active={agent.id === effectiveAgentId ? "true" : undefined}
-                          onSelect={() => {
-                            // Switching agents drops the harness override so a
-                            // pick never leaks across agents.
-                            if (agent.id !== effectiveAgentId) setPickedHarness(null);
-                            setPickedAgentId(agent.id);
-                            // Explicit picks persist; auto-defaults never do.
-                            writeLastAgentId(agent.id);
-                          }}
-                          className="items-start gap-2 rounded-sm px-2 py-1.5 text-sm data-[active=true]:bg-accent/60 data-[active=true]:text-foreground"
+                      {/* Sliding viewport: height follows the visible page (so
+                          the popover resizes with the slide); the inner track is
+                          twice as wide and shifts by half to reveal page 2.
+                          overflow-hidden clips the off-screen page. */}
+                      <div
+                        className="overflow-hidden transition-[height] duration-200 ease-out"
+                        style={{ height: agentMenuHeight }}
+                      >
+                        <div
+                          className={cn(
+                            "flex w-[200%] items-start transition-transform duration-200 ease-out",
+                            agentMenuView === "advanced" && "-translate-x-1/2",
+                          )}
                         >
-                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                            <span className="truncate">{agent.display_name}</span>
-                            {(AGENT_PICKER_DESCRIPTIONS[agent.name] ?? agent.description) && (
-                              <span className="truncate text-xs text-muted-foreground">
-                                {AGENT_PICKER_DESCRIPTIONS[agent.name] ?? agent.description}
-                              </span>
+                          {/* Page 1 — agent list. inert while off-screen so its
+                              items stay out of the tab order / typeahead. */}
+                          <div
+                            ref={agentsPageRef}
+                            className="w-1/2 shrink-0 p-1"
+                            inert={agentMenuView !== "agents"}
+                            aria-hidden={agentMenuView !== "agents"}
+                          >
+                            {agentList.map((agent) => (
+                              <DropdownMenuItem
+                                key={agent.id}
+                                data-testid={`new-chat-landing-agent-${agent.id}`}
+                                data-active={agent.id === effectiveAgentId ? "true" : undefined}
+                                onSelect={(e) => {
+                                  // Switching agents drops the harness override so
+                                  // a pick never leaks across agents.
+                                  if (agent.id !== effectiveAgentId) setPickedHarness(null);
+                                  setPickedAgentId(agent.id);
+                                  // Explicit picks persist; auto-defaults never do.
+                                  writeLastAgentId(agent.id);
+                                  // Agents with Advanced settings keep the menu
+                                  // open so the user can step into the sub-page;
+                                  // plain agents close on pick as before.
+                                  if (agentHasAdvancedSettings(agent)) e.preventDefault();
+                                }}
+                                className="items-start gap-2 rounded-sm px-2 py-1.5 text-sm data-[active=true]:bg-accent/60 data-[active=true]:text-foreground"
+                              >
+                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                  <span className="truncate">{agent.display_name}</span>
+                                  {(AGENT_PICKER_DESCRIPTIONS[agent.name] ?? agent.description) && (
+                                    <span className="truncate text-xs text-muted-foreground">
+                                      {AGENT_PICKER_DESCRIPTIONS[agent.name] ?? agent.description}
+                                    </span>
+                                  )}
+                                </div>
+                                {/* Compact right-aligned readiness pill; the full
+                                    remediation text lives in the composer warning. */}
+                                {harnessUnconfiguredOnHost(agent.harness, harnessWarningHost) && (
+                                  <Badge
+                                    variant="outline"
+                                    className="ml-auto self-center border-amber-300 bg-amber-50 text-[11px] text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400"
+                                    data-testid={`new-chat-landing-agent-warning-${agent.id}`}
+                                  >
+                                    needs setup
+                                  </Badge>
+                                )}
+                              </DropdownMenuItem>
+                            ))}
+                            {/* Advanced settings entry — only for the selected
+                                agent that exposes knobs. Slides to page 2 rather
+                                than closing the menu. */}
+                            {agentHasAdvancedSettings(selectedAgent) && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  data-testid="new-chat-landing-advanced-entry"
+                                  onSelect={(e) => {
+                                    e.preventDefault();
+                                    setAgentMenuView("advanced");
+                                  }}
+                                  className="gap-2 rounded-sm px-2 py-1.5 text-sm text-muted-foreground"
+                                >
+                                  <SettingsIcon className="size-4 shrink-0 opacity-70" />
+                                  <span className="flex-1">Advanced settings</span>
+                                  <ChevronRightIcon className="size-3.5 shrink-0 opacity-60" />
+                                </DropdownMenuItem>
+                              </>
                             )}
                           </div>
-                          {/* Compact right-aligned readiness pill; the full
-                              remediation text lives in the composer warning. */}
-                          {harnessUnconfiguredOnHost(agent.harness, harnessWarningHost) && (
-                            <Badge
-                              variant="outline"
-                              className="ml-auto self-center border-amber-300 bg-amber-50 text-[11px] text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400"
-                              data-testid={`new-chat-landing-agent-warning-${agent.id}`}
+                          {/* Page 2 — Advanced settings for the selected agent:
+                              the brain-harness override (bundle agents), Claude
+                              Code's permission mode, and Codex's approval mode. */}
+                          <div
+                            ref={advancedPageRef}
+                            className="w-1/2 shrink-0 p-1"
+                            inert={agentMenuView !== "advanced"}
+                            aria-hidden={agentMenuView !== "advanced"}
+                          >
+                            <DropdownMenuItem
+                              data-testid="new-chat-landing-advanced-back"
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                setAgentMenuView("agents");
+                              }}
+                              className="gap-1.5 rounded-sm px-2 py-1.5 text-sm font-medium"
                             >
-                              needs setup
-                            </Badge>
-                          )}
-                        </DropdownMenuItem>
-                      ))}
+                              <ChevronLeftIcon className="size-4 shrink-0 opacity-70" />
+                              <span className="truncate">
+                                {selectedAgent?.display_name ?? "Advanced settings"}
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {selectedAgentDefaultHarness != null && (
+                              <BrainHarnessOptions
+                                value={pickedHarness ?? selectedAgentDefaultHarness}
+                                onValueChange={(h) =>
+                                  // Picking the spec default clears the override
+                                  // so the session tracks the spec.
+                                  setPickedHarness(h === selectedAgentDefaultHarness ? null : h)
+                                }
+                                host={harnessWarningHost}
+                              />
+                            )}
+                            {/* Permission mode (Claude Code only) — claude-native
+                              has no overridable harness, so the two sections never
+                              co-render today; the separator covers a future agent
+                              with both. */}
+                            {supportsPermissionMode && (
+                              <>
+                                {selectedAgentDefaultHarness != null && <DropdownMenuSeparator />}
+                                <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground">
+                                  Permission mode
+                                </div>
+                                <PermissionModeOptions
+                                  value={permissionMode}
+                                  onValueChange={setPermissionMode}
+                                />
+                              </>
+                            )}
+                            {/* Approval mode (Codex only) — codex-native has no
+                              overridable harness, so the two sections never
+                              co-render today; the separator covers a future agent
+                              with both. */}
+                            {supportsApprovalMode && (
+                              <>
+                                {(selectedAgentDefaultHarness != null ||
+                                  supportsPermissionMode) && <DropdownMenuSeparator />}
+                                <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground">
+                                  Approval mode
+                                </div>
+                                <ApprovalModeOptions
+                                  value={approvalMode}
+                                  onValueChange={setApprovalMode}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : (
@@ -1742,73 +1937,6 @@ export function NewChatLandingScreen() {
                     </div>
                   </PopoverContent>
                 </Popover>
-              )}
-
-              {/* Advanced settings chip — per-agent knobs that don't warrant
-                their own chip: the brain-harness override (bundle agents),
-                Claude Code's permission mode, and Codex's approval mode.
-                Hidden when the selected agent has none. */}
-              {(selectedAgentDefaultHarness != null ||
-                supportsPermissionMode ||
-                supportsApprovalMode) && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-6 items-center gap-1.5 rounded-full px-3 text-13 font-normal text-muted-foreground transition-colors hover:text-foreground"
-                      data-testid="new-chat-landing-advanced-chip"
-                    >
-                      <SettingsIcon className="size-4 shrink-0" />
-                      <span className="truncate">Advanced</span>
-                      <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="start"
-                    className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto p-1"
-                  >
-                    {selectedAgentDefaultHarness != null && (
-                      <BrainHarnessOptions
-                        value={pickedHarness ?? selectedAgentDefaultHarness}
-                        onValueChange={(h) =>
-                          // Picking the spec default clears the override so the
-                          // session tracks the spec.
-                          setPickedHarness(h === selectedAgentDefaultHarness ? null : h)
-                        }
-                        host={harnessWarningHost}
-                      />
-                    )}
-                    {/* Permission mode (Claude Code only) — claude-native has no
-                      overridable harness, so the two sections never co-render
-                      today; the separator covers a future agent with both. */}
-                    {supportsPermissionMode && (
-                      <>
-                        {selectedAgentDefaultHarness != null && <DropdownMenuSeparator />}
-                        <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground">
-                          Permission mode
-                        </div>
-                        <PermissionModeOptions
-                          value={permissionMode}
-                          onValueChange={setPermissionMode}
-                        />
-                      </>
-                    )}
-                    {/* Approval mode (Codex only) — codex-native has no
-                      overridable harness, so the two sections never co-render
-                      today; the separator covers a future agent with both. */}
-                    {supportsApprovalMode && (
-                      <>
-                        {(selectedAgentDefaultHarness != null || supportsPermissionMode) && (
-                          <DropdownMenuSeparator />
-                        )}
-                        <div className="px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground">
-                          Approval mode
-                        </div>
-                        <ApprovalModeOptions value={approvalMode} onValueChange={setApprovalMode} />
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
               )}
             </div>
           </div>
