@@ -1554,6 +1554,8 @@ function sessionBindingPatch(
   | "llmModel"
   | "sessionModelOverride"
   | "sessionHarness"
+  | "sessionWrapper"
+  | "sessionPermissionMode"
   | "costControlModeOverride"
   | "contextWindow"
   | "gitBranch"

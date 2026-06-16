@@ -568,7 +568,7 @@ export async function updateSession(
 ): Promise<Session> {
   const body: Record<string, string | boolean | string[] | null> = {};
   if ("terminalLaunchArgs" in updates) {
-    body.terminal_launch_args = updates.terminalLaunchArgs;
+    body.terminal_launch_args = updates.terminalLaunchArgs ?? null;
   }
   if ("reasoningEffort" in updates) {
     body.reasoning_effort = updates.reasoningEffort ?? "default";

@@ -179,7 +179,9 @@ async def _drive_claude_permission_mode(base_url: str, session_id: str) -> None:
             # The Permission mode section should be visible with all six options.
             for mode in ("default", "auto", "acceptEdits", "plan", "dontAsk", "bypassPermissions"):
                 await expect(
-                    page.locator(f'[data-testid="permission-mode-picker-item"][data-mode-value="{mode}"]')
+                    page.locator(
+                        f'[data-testid="permission-mode-picker-item"][data-mode-value="{mode}"]'
+                    )
                 ).to_be_visible()
 
             # Select "acceptEdits".
@@ -234,7 +236,9 @@ async def _drive_codex_approval_mode(base_url: str, session_id: str) -> None:
             # The Approval mode section should be visible with all three options.
             for mode in ("suggest", "auto-edit", "full-auto"):
                 await expect(
-                    page.locator(f'[data-testid="permission-mode-picker-item"][data-mode-value="{mode}"]')
+                    page.locator(
+                        f'[data-testid="permission-mode-picker-item"][data-mode-value="{mode}"]'
+                    )
                 ).to_be_visible()
 
             # Select "full-auto".
