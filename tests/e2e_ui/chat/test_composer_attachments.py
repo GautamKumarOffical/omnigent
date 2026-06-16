@@ -92,9 +92,9 @@ def test_attach_json_file(page: Page, seeded_session: tuple[str, str], tmp_path:
     file_input = page.locator('input[type="file"][accept*="image/"]')
     # The accept attr is what gates the picker/drag-drop; assert JSON is listed.
     accept = file_input.get_attribute("accept")
-    assert (
-        accept is not None and "application/json" in accept
-    ), f"composer file input should accept application/json; got {accept!r}"
+    assert accept is not None and "application/json" in accept, (
+        f"composer file input should accept application/json; got {accept!r}"
+    )
 
     file_input.set_input_files(str(sample))
 
