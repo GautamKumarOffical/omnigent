@@ -2804,6 +2804,7 @@ export function Composer({
   // Nonce bumped when bare "/model" is submitted; opens the AgentPicker
   // dropdown instead of sending (see submit()).
   const [pickerOpenNonce, setPickerOpenNonce] = useState(0);
+  const [isComposing, setIsComposing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Highlight overlay mirroring the textarea; scroll-synced so the tinted
@@ -3270,7 +3271,7 @@ export function Composer({
 
     // Enter sends; Shift+Enter inserts a newline. On mobile, Enter inserts a
     // newline (no Shift available on-screen) and Send must be tapped instead.
-    if (e.key === "Enter" && !e.shiftKey && !isMobile && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !isMobile && !isComposing && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
       return;
@@ -3447,6 +3448,8 @@ export function Composer({
               else resetCursor();
             }}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
             onPaste={handlePaste}
             onScroll={(e) => {
               // Keep the overlay's scroll position locked to the textarea's.
